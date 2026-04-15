@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Toolkitr](/docs/toolkitr-logo.svg)
+![Toolkitr](/docs/toolkitr-screenshot.png)
 
 **Modern AI-powered platform for mainframe COBOL development, testing, and deployment**
 
