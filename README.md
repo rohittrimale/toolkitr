@@ -48,7 +48,7 @@
 ### 1️⃣ Clone & Install
 
 ```bash
-git clone https://github.com/yourusername/toolkitr.git
+git clone https://github.com/rohittrimale/toolkitr.git
 cd toolkitr
 
 # Install dependencies
@@ -342,7 +342,7 @@ A: You need a GitHub account with Copilot access. See [Auth Setup](GITHUB_SETUP.
 A: Yes, though you should review security before deploying to production.
 
 **Q: How do I report bugs?**  
-A: Open a [GitHub Issue](https://github.com/yourusername/toolkitr/issues) with reproduction steps.
+A: Open a [GitHub Issue](https://github.com/rohittrimale/toolkitr/issues) with reproduction steps.
 
 ---
 
@@ -365,9 +365,9 @@ MIT License - see [LICENSE](LICENSE) file for details
 ## 📞 Support & Community
 
 - 📖 **Documentation:** See [docs/](docs/) directory
-- 💬 **Discussions:** [GitHub Discussions](https://github.com/yourusername/toolkitr/discussions)
-- 🐛 **Report Issues:** [GitHub Issues](https://github.com/yourusername/toolkitr/issues)
-- 📧 **Email:** support@example.com
+- 💬 **Discussions:** [GitHub Discussions](https://github.com/rohittrimale/toolkitr/discussions)
+- 🐛 **Report Issues:** [GitHub Issues](https://github.com/rohittrimale/toolkitr/issues)
+- 📧 **Email:** rohittrimalle@gmail.com
 
 ---
 
