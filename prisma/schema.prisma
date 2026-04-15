@@ -1,0 +1,592 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  USER
+  VIEWER
+}
+
+enum MessageRole {
+  user
+  assistant
+}
+
+enum ConversationMode {
+  Ask
+  Edit
+  Agent
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  READ
+  LOGIN
+  LOGOUT
+  EXPORT
+  SUBMIT_JCL
+  RUN_COMMAND
+}
+
+// ============= USERS & TEAMS =============
+model User {
+  id                String     @id @default(cuid())
+  github_id         Int        @unique
+  email             String     @unique
+  name              String?
+  avatar_url        String?
+  role              UserRole   @default(USER)
+  
+  // MFA Setup
+  mfa_enabled       Boolean    @default(false)
+  mfa_secret        String?    @db.Text // Encrypted TOTP secret
+  mfa_backup_codes  String?    @db.Text // Encrypted backup codes (JSON)
+  
+  // API Keys
+  api_keys          String?    @db.Text // Encrypted BYOK keys (JSON)
+  
+  // Relations
+  conversations     Conversation[]
+  teams             TeamMember[]
+  mainframe_profiles MainframeProfile[]
+  settings          UserSettings?
+  sessions          Session[]
+  audit_logs        AuditLog[]
+  
+  created_at        DateTime   @default(now())
+  updated_at        DateTime   @updatedAt
+  
+  @@index([email])
+  @@index([github_id])
+}
+
+model Team {
+  id                String     @id @default(cuid())
+  name              String
+  owner_id          String
+  description       String?    @db.Text
+  
+  // Relations
+  members           TeamMember[]
+  conversations     Conversation[]
+  profiles          MainframeProfile[]
+  audit_logs        AuditLog[]
+  
+  created_at        DateTime   @default(now())
+  updated_at        DateTime   @updatedAt
+  
+  @@unique([owner_id, name])
+  @@index([owner_id])
+}
+
+model TeamMember {
+  id                String     @id @default(cuid())
+  team_id           String
+  user_id           String
+  role              UserRole   @default(USER)
+  
+  // Relations
+  team              Team       @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  user              User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  created_at        DateTime   @default(now())
+  
+  @@unique([team_id, user_id])
+  @@index([team_id])
+  @@index([user_id])
+}
+
+// ============= CONVERSATIONS & MESSAGES =============
+model Conversation {
+  id                String     @id @default(cuid())
+  user_id           String
+  team_id           String?
+  
+  title             String     @default("New Conversation")
+  description       String?    @db.Text
+  model             String     @default("claude-3-5-sonnet")
+  mode              ConversationMode @default(Ask)
+  
+  // Context
+  selected_files    String?    @db.Text // JSON array of file paths
+  screen_context    String?    @db.Text // Last captured mainframe screen
+  
+  // Relations
+  user              User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  team              Team?      @relation(fields: [team_id], references: [id], onDelete: SetNull)
+  messages          Message[]
+  
+  // Metadata
+  token_count       Int        @default(0)
+  last_message_at   DateTime?
+  created_at        DateTime   @default(now())
+  updated_at        DateTime   @updatedAt
+  
+  @@index([user_id])
+  @@index([team_id])
+  @@index([created_at])
+}
+
+model Message {
+  id                String     @id @default(cuid())
+  conversation_id   String
+  
+  role              MessageRole
+  content           String?    @db.Text
+  thinking          String?    @db.Text // Extended thinking output
+  
+  // Model & execution info
+  model             String
+  tokens_input      Int        @default(0)
+  tokens_output     Int        @default(0)
+  tokens_thinking   Int        @default(0)
+  
+  // Tool execution
+  tool_calls        String?    @db.Text // JSON array of tool_call objects
+  tool_results      String?    @db.Text // JSON object with tool execution results
+  
+  // Mainframe actions
+  mainframe_actions String?    @db.Text // JSON array of action results
+  
+  // UI state
+  hidden            Boolean    @default(false) // Hide from display
+  
+  // Relations
+  conversation      Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  
+  created_at        DateTime   @default(now())
+  
+  @@index([conversation_id])
+  @@index([created_at])
+}
+
+// ============= SESSION MANAGEMENT =============
+model Session {
+  id                String     @id @default(cuid())
+  user_id           String
+  
+  // Connection state
+  connection_state  String?    @db.Text // JSON: {screen, cursor, host, port}
+  mainframe_state   String?    @db.Text // JSON: {fields, protectedFields, errorCode}
+  
+  // Command replay
+  command_history   String?    @db.Text // JSON array of commands
+  command_index     Int        @default(0)
+  
+  // Relations
+  user              User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  expires_at        DateTime
+  created_at        DateTime   @default(now())
+  updated_at        DateTime   @updatedAt
+  
+  @@index([user_id])
+  @@index([expires_at])
+}
+
+// ============= MAINFRAME PROFILES =============
+model MainframeProfile {
+  id                String     @id @default(cuid())
+  user_id           String
+  team_id           String?
+  
+  name              String // "Production", "Development", etc
+  host              String
+  port              Int
+  secure            Boolean    @default(false)
+  term_type         String     @default("IBM-3278-2-E")
+  
+  // Connection settings
+  timeout_seconds   Int        @default(30)
+  keep_alive        Boolean    @default(true)
+  
+  // Credentials (optional, can use OAuth)
+  username          String?    // Encrypted
+  password          String?    // Encrypted
+  
+  // Metadata
+  last_connected    DateTime?
+  connection_count  Int        @default(0)
+  
+  // Relations
+  user              User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  team              Team?      @relation(fields: [team_id], references: [id], onDelete: SetNull)
+  
+  created_at        DateTime   @default(now())
+  updated_at        DateTime   @updatedAt
+  
+  @@unique([user_id, name])
+  @@index([user_id])
+  @@index([team_id])
+}
+
+// ============= USER SETTINGS =============
+model UserSettings {
+  id                String     @id @default(cuid())
+  user_id           String     @unique
+  
+  // UI Preferences
+  theme             String     @default("dark")
+  font_size         Int        @default(12)
+  font_family       String     @default("IBM Plex Mono")
+  language          String     @default("en")
+  
+  // Display options
+  show_pf_bar       Boolean    @default(true)
+  show_scanlines    Boolean    @default(false)
+  show_shift_row    Boolean    @default(false)
+  
+  // Behavior
+  auto_save         Boolean    @default(true)
+  auto_connect      Boolean    @default(false)
+  confirm_destructive Boolean  @default(true)
+  
+  // Terminal
+  terminal_rows     Int        @default(24)
+  terminal_cols     Int        @default(80)
+  
+  // AI preferences
+  default_model     String     @default("claude-3-5-sonnet")
+  chat_token_limit  Int        @default(16000)
+  
+  // Notifications
+  notify_on_complete Boolean   @default(true)
+  notify_on_error   Boolean    @default(true)
+  
+  // Custom preferences
+  custom_settings   String?    @db.Text // JSON
+  
+  // Relations
+  user              User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  created_at        DateTime   @default(now())
+  updated_at        DateTime   @updatedAt
+}
+
+// ============= AUDIT LOGGING =============
+model AuditLog {
+  id                String     @id @default(cuid())
+  user_id           String
+  team_id           String?
+  
+  action            AuditAction
+  resource_type     String     // "Conversation", "Mainframe", "User", etc
+  resource_id       String?
+  
+  description       String?    @db.Text
+  
+  // State before/after
+  before_state      String?    @db.Text // JSON
+  after_state       String?    @db.Text // JSON
+  
+  // Request context
+  ip_address        String?
+  user_agent        String?    @db.Text
+  
+  // Status
+  success           Boolean    @default(true)
+  error_message     String?    @db.Text
+  
+  // Relations
+  user              User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  team              Team?      @relation(fields: [team_id], references: [id], onDelete: SetNull)
+  
+  timestamp         DateTime   @default(now())
+  
+  @@index([user_id])
+  @@index([timestamp])
+  @@index([action])
+  @@index([resource_type])
+}
+
+// ============= RATE LIMITING =============
+model RateLimit {
+  id                String     @id @default(cuid())
+  user_id           String
+  endpoint          String     // "/api/chat", "/api/models", etc
+  
+  request_count     Int        @default(1)
+  window_start      DateTime
+  window_end        DateTime
+  
+  created_at        DateTime   @default(now())
+  
+  @@unique([user_id, endpoint, window_start])
+  @@index([user_id])
+  @@index([endpoint])
+  @@index([window_end])
+}
+
+// ============= BACKUP METADATA =============
+model Backup {
+  id                String     @id @default(cuid())
+  
+  backup_time       DateTime   @default(now())
+  backup_size       BigInt     // in bytes
+  backup_path       String     // S3 path or local path
+  
+  status            String     @default("completed") // completed, failed, restored
+  error_message     String?    @db.Text
+  
+  // Verification
+  checksum          String?
+  verified          Boolean    @default(false)
+  verified_at       DateTime?
+  
+  // Retention
+  retention_until   DateTime
+  automated         Boolean    @default(true)
+  
+  created_at        DateTime   @default(now())
+  
+  @@index([backup_time])
+  @@index([status])
+}
+
+// ============= PERFORMANCE METRICS =============
+model PerformanceMetric {
+  id                String     @id @default(cuid())
+  
+  metric_name       String     // "api_latency", "token_count", "error_rate"
+  metric_value      Float
+  metric_unit       String     // "ms", "tokens", "percent"
+  
+  user_id           String?
+  endpoint          String?
+  model             String?
+  
+  timestamp         DateTime   @default(now())
+  
+  @@index([metric_name])
+  @@index([timestamp])
+  @@index([user_id])
+}
+
+// ============================================================================
+// LEARNING ENGINE MODELS - AI Agent Learning & Persistence
+// ============================================================================
+
+// ACTION OUTCOMES - Every action the agent takes
+model ActionOutcome {
+  id                 Int      @id @default(autoincrement())
+  userId             String
+  sessionId          String
+  actionType         String   @db.VarChar(100)
+  success            Boolean
+  durationMs         Int
+  errorType          String?  @db.VarChar(100)
+  errorMessage       String?  @db.Text
+  recoveryStrategy   String?  @db.VarChar(100)
+  retryCount         Int      @default(0)
+  contextDataset     String?  @db.VarChar(255)
+  contextEnvironment String?  @db.VarChar(50)  // 'prod', 'test', 'dev'
+  screenBefore       String?  @db.Text
+  screenAfter        String?  @db.Text
+  timestamp          BigInt
+  createdAt          DateTime @default(now())
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([actionType])
+  @@index([timestamp])
+  @@index([userId, timestamp])
+}
+
+// SUCCESS PATTERNS - Learned successful action sequences
+model SuccessPattern {
+  id             Int      @id @default(autoincrement())
+  userId         String
+  actionSequence Json     // ["NAVIGATE", "READ", "WRITE"]
+  sequenceHash   String   @db.VarChar(64)  // Hash for lookups
+  frequency      Int      @default(1)
+  successRate    Decimal  @db.Decimal(5, 4) @default(0) // 0-1
+  avgDurationMs  Int      @default(0)
+  lastUsed       BigInt?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId])
+  @@index([sequenceHash])
+  @@unique([userId, sequenceHash])
+}
+
+// FAILURE PATTERNS - Learned failure sequences
+model FailurePattern {
+  id                   Int      @id @default(autoincrement())
+  userId               String
+  actionSequence       Json
+  sequenceHash         String   @db.VarChar(64)
+  frequency            Int      @default(1)
+  failureRate          Decimal  @db.Decimal(5, 4) @default(0)
+  commonErrors         Json     // { "S913": 5, "NOT_FOUND": 3 }
+  successfulRecovery   Json?    // { "ADD_RACF": 3, "RETRY": 2 }
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([userId])
+  @@index([sequenceHash])
+  @@unique([userId, sequenceHash])
+}
+
+// ERROR RECOVERY MAP - Error → Recovery strategy mapping
+model ErrorRecoveryMap {
+  id               Int      @id @default(autoincrement())
+  userId           String
+  errorType        String   @db.VarChar(100)
+  recoveryStrategy String   @db.VarChar(100)
+  successCount     Int      @default(1)
+  attemptCount     Int      @default(1)
+  successRate      Decimal  @db.Decimal(5, 4) @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId])
+  @@index([errorType])
+  @@unique([userId, errorType, recoveryStrategy])
+}
+
+// USER PREFERENCES - Learned user preferences & shortcuts
+model UserPreference {
+  id               Int      @id @default(autoincrement())
+  userId           String
+  preferenceKey    String   @db.VarChar(255)
+  preferenceValue  Json
+  frequency        Int      @default(1)
+  confidence       Decimal  @db.Decimal(3, 2) @default(0.5) // 0-1
+  lastModified     BigInt?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId])
+  @@unique([userId, preferenceKey])
+}
+
+// ADAPTIVE STRATEGIES - Optimal strategy per task type
+model AdaptiveStrategy {
+  id                   Int      @id @default(autoincrement())
+  userId               String
+  taskType             String   @db.VarChar(100)
+  strategyName         String?  @db.VarChar(255)
+  successRate          Decimal  @db.Decimal(5, 4) @default(0)
+  failureRate          Decimal  @db.Decimal(5, 4) @default(0)
+  timeoutSuggestionMs  Int      @default(3000)
+  retryStrategy        String   @default("exponential") // 'exponential', 'linear', 'none'
+  maxRetries           Int      @default(3)
+  preflightChecks      Json?    // ["Check permissions", "Verify dataset"]
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([userId])
+  @@index([taskType])
+  @@unique([userId, taskType])
+}
+
+// LEARNING SESSIONS - Session tracking & model snapshots
+model LearningSession {
+  id                  Int      @id @default(autoincrement())
+  userId              String
+  sessionId           String   @unique
+  totalInteractions   Int      @default(0)
+  successCount        Int      @default(0)
+  failureCount        Int      @default(0)
+  learningConfidence  Decimal  @db.Decimal(3, 2) @default(0)
+  patternsDiscovered  Int      @default(0)
+  startedAt           DateTime @default(now())
+  endedAt             DateTime?
+  exportedModel       Json?    // Full model snapshot for reload
+  createdAt           DateTime @default(now())
+
+  @@index([userId])
+}
+
+// LEARNING METRICS HISTORY - For trending & analytics
+model LearningMetricsHistory {
+  id                  Int      @id @default(autoincrement())
+  userId              String
+  timestamp           BigInt
+  successRate         Decimal? @db.Decimal(5, 4)
+  avgIterations       Decimal? @db.Decimal(5, 2)
+  patternsCount       Int?
+  learningConfidence  Decimal? @db.Decimal(3, 2)
+  mostCommonError     String?  @db.VarChar(100)
+  createdAt           DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, timestamp])
+}
+
+// DATASET LEARNING - Learned properties of datasets
+model DatasetLearning {
+  id                  Int      @id @default(autoincrement())
+  userId              String
+  datasetName         String   @db.VarChar(255)
+  accessCount         Int      @default(1)
+  successCount        Int      @default(0)
+  failureCount        Int      @default(0)
+  avgAccessTimeMs     Int      @default(0)
+  lastAccessedAt      BigInt?
+  commonErrors        Json?
+  isFavorite          Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([userId])
+  @@index([datasetName])
+  @@unique([userId, datasetName])
+}
+
+// DECISION LOG - Track AI decisions for learning & analysis
+model DecisionLog {
+  id                  String   @id @default(cuid())
+  userId              String
+  conversationId      String?
+  messageId           String?
+  
+  // Decision context
+  title               String   @db.VarChar(200)
+  context             String?  @db.Text  // Situation description
+  options             Json?                // Available options array
+  
+  // Decision made
+  chosenOption        String   @db.Text  // The selected option/action
+  reasoning           String?  @db.Text  // Explanation of why
+  confidence          Decimal  @db.Decimal(3, 2) // 0-100 confidence level
+  
+  // Tradeoffs analyzed
+  tradeoffs           Json?                // {pro: [...], con: [...]}
+  riskLevel           String?  @db.VarChar(20)  // "low", "medium", "high"
+  
+  // Outcome tracking
+  outcome             String?  @db.VarChar(20)  // "success", "failure", "pending", "unknown"
+  outcomeReason       String?  @db.Text
+  feedbackReceived    Boolean  @default(false)  // User validated outcome
+  userFeedback        String?  @db.Text
+  
+  // Metadata
+  decisionType        String   @db.VarChar(50)  // "api_call", "parameter_choice", "error_handling", etc.
+  domain              String?  @db.VarChar(50)  // "mainframe", "code_analysis", "automation", etc.
+  tags                String?  @db.VarChar(255) // Comma-separated tags for grouping
+  
+  // Timing
+  decisionTimeMs      Int?     // How long decision took
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([userId, createdAt])
+  @@index([decisionType])
+  @@index([outcome])
+  @@index([conversationId])
+}
+

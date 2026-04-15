@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(lsof -ti:3012)",
+      "Bash(xargs kill:*)",
+      "Bash(netstat -ano)",
+      "Bash(npm run:*)",
+      "Bash(pkill -9 -f \"node\")",
+      "Bash(cmd /c \"taskkill /F /PID 29096 2>nul || echo Process not found\")",
+      "Bash(cmd /c \"taskkill /F /IM node.exe 2>nul & timeout /t 2 >nul\")",
+      "Bash(powershell -Command \"Get-Process node | Stop-Process -Force; Start-Sleep -Seconds 2\")"
+    ]
+  }
+}

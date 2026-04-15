@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Next.js
+.next/
+out/
+dist/
+
+# Build outputs
+*.tsbuildinfo
+
+# Environment
+.env.local
+.env.*.local
+.env.local.ai
+.env*.secret
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# RAG System — Local data files (regeneratable, don't commit)
+data/ibm-docs/pdfs/
+data/ibm-docs/embeddings.json
+data/ibm-docs/index.json
