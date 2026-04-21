@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { prisma } from "@/lib/core/db";
 
 // GET /api/health - Lightweight health check (alias for /api/admin/health)
 export async function GET() {
